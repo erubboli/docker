@@ -2,6 +2,8 @@ package docker
 
 import (
 	"fmt"
+	"github.com/dotcloud/docker/utils"
+	"strconv"
 	"strings"
 )
 
@@ -78,20 +80,37 @@ func MergeConfig(userConf, imageConf *Config) {
 	if userConf.CpuShares == 0 {
 		userConf.CpuShares = imageConf.CpuShares
 	}
-	if userConf.PortSpecs == nil || len(userConf.PortSpecs) == 0 {
-		userConf.PortSpecs = imageConf.PortSpecs
-	} else {
-		for _, imagePortSpec := range imageConf.PortSpecs {
-			found := false
-			imageNat, _ := parseNat(imagePortSpec)
-			for _, userPortSpec := range userConf.PortSpecs {
-				userNat, _ := parseNat(userPortSpec)
-				if imageNat.Proto == userNat.Proto && imageNat.Backend == userNat.Backend {
-					found = true
-				}
+	if userConf.ExposedPorts == nil || len(userConf.ExposedPorts) == 0 {
+		userConf.ExposedPorts = imageConf.ExposedPorts
+	}
+	contains := func(p Port) bool {
+		for _, up := range userConf.ExposedPorts {
+			if up == p {
+				return true
 			}
-			if !found {
-				userConf.PortSpecs = append(userConf.PortSpecs, imagePortSpec)
+		}
+		return false
+	}
+
+	if userConf.PortSpecs != nil {
+		ports, _, err := parsePortSpecs(userConf.PortSpecs)
+		if err != nil {
+			panic(err)
+		}
+		for _, port := range ports {
+			if !contains(port) {
+				userConf.ExposedPorts = append(userConf.ExposedPorts, port)
+			}
+		}
+	}
+	if imageConf.PortSpecs != nil && len(imageConf.PortSpecs) > 0 {
+		ports, _, err := parsePortSpecs(imageConf.PortSpecs)
+		if err != nil {
+			panic(err)
+		}
+		for _, port := range ports {
+			if !contains(port) {
+				userConf.ExposedPorts = append(userConf.ExposedPorts, port)
 			}
 		}
 	}
@@ -166,4 +185,72 @@ func parseLxcOpt(opt string) (string, string, error) {
 		return "", "", fmt.Errorf("Unable to parse lxc conf option: %s", opt)
 	}
 	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), nil
+}
+
+// We will receive port specs in the format of ip:public:private/proto and these need to be
+// parsed in the internal types
+func parsePortSpecs(ports []string) ([]Port, map[string]PortBinding, error) {
+	exposedPorts := make([]Port, len(ports))
+	bindings := make(map[string]PortBinding)
+
+	for index, rawPort := range ports {
+		proto := "tcp"
+		if i := strings.LastIndex(rawPort, "/"); i != -1 {
+			proto = rawPort[i+1:]
+			rawPort = rawPort[:i]
+		}
+		if !strings.Contains(rawPort, ":") {
+			rawPort = fmt.Sprintf("::%s", rawPort)
+		} else if len(strings.Split(rawPort, ":")) == 2 {
+			rawPort = fmt.Sprintf(":%s", rawPort)
+		}
+
+		parts, err := utils.PartParser("ip:hostPort:containerPort", rawPort)
+		if err != nil {
+			return nil, nil, err
+		}
+		containerPort := parts["containerPort"]
+		rawIp := parts["ip"]
+		hostPort := parts["hostPort"]
+
+		if containerPort == "" {
+			return nil, nil, fmt.Errorf("No port specified: %s<empty>", rawPort)
+		}
+		port := Port{
+			Proto: proto,
+			Value: containerPort,
+		}
+		exposedPorts[index] = port
+
+		if rawIp == "" && hostPort == "" {
+			continue
+		}
+		bindings[port.Value] = PortBinding{
+			HostIp:   rawIp,
+			HostPort: hostPort,
+		}
+	}
+	return exposedPorts, bindings, nil
+}
+
+func parsePort(rawPort string) (int, error) {
+	port, err := strconv.ParseUint(rawPort, 10, 16)
+	if err != nil {
+		return 0, err
+	}
+	return int(port), nil
+}
+
+func migratePortMappings(config *Config) error {
+	if config.PortSpecs != nil {
+		// We don't have to worry about migrating the bindings to the host
+		// This is our breaking change
+		ports, _, err := parsePortSpecs(config.PortSpecs)
+		if err != nil {
+			return err
+		}
+		config.PortSpecs = nil
+		config.ExposedPorts = ports
+	}
+	return nil
 }

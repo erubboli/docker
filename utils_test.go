@@ -233,12 +233,12 @@ func TestMergeConfig(t *testing.T) {
 		}
 	}
 
-	if len(configUser.PortSpecs) != 3 {
-		t.Fatalf("Expected 3 portSpecs, 1111:1111, 3333:2222 and 3333:3333, found %d", len(configUser.PortSpecs))
+	if len(configUser.ExposedPorts) != 3 {
+		t.Fatalf("Expected 3 portSpecs, 1111, 2222 and 3333, found %d", len(configUser.PortSpecs))
 	}
-	for _, portSpecs := range configUser.PortSpecs {
-		if portSpecs != "1111:1111" && portSpecs != "3333:2222" && portSpecs != "3333:3333" {
-			t.Fatalf("Expected 1111:1111 or 3333:2222 or 3333:3333, found %s", portSpecs)
+	for _, portSpecs := range configUser.ExposedPorts {
+		if portSpecs.Value != "1111" && portSpecs.Value != "2222" && portSpecs.Value != "3333" {
+			t.Fatalf("Expected 1111 or 2222 or 3333, found %s", portSpecs)
 		}
 	}
 	if len(configUser.Env) != 3 {

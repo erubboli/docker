@@ -303,12 +303,13 @@ func startEchoServerContainer(t *testing.T, proto string) (*Runtime, *Container,
 			Cmd:       []string{"sh", "-c", cmd},
 			PortSpecs: []string{fmt.Sprintf("%s/%s", strPort, proto)},
 		})
-		if container != nil {
-			break
-		}
 		if err != nil {
 			nuke(runtime)
 			t.Fatal(err)
+		}
+
+		if container != nil {
+			break
 		}
 		t.Logf("Port %v already in use", strPort)
 	}
@@ -328,7 +329,7 @@ func startEchoServerContainer(t *testing.T, proto string) (*Runtime, *Container,
 	// Even if the state is running, lets give some time to lxc to spawn the process
 	container.WaitTimeout(500 * time.Millisecond)
 
-	strPort = container.NetworkSettings.PortMapping[strings.Title(proto)][strPort]
+	strPort = container.NetworkSettings.Ports[strPort].HostPort
 	return runtime, container, strPort
 }
 
